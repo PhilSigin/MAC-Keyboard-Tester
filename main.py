@@ -6,10 +6,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
-    QComboBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -18,23 +17,21 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from capture.hid_capture import HidCapture
-from capture.qt_capture import QtCapture
-from capture.tap_capture import TapCapture
 from key_map_fr import KeyRef, SLOT_NAMES
 from keyboard_widget import KeyboardWidget
+from tap_capture import TapCapture
 
 ROOT = Path(__file__).resolve().parent
 PNG = ROOT / "materials" / "Keyboard-8-bit.png"
 SVG = ROOT / "materials" / "Keyboard-8-bit.svg"
-
-MODES = ("Qt", "CGEventTap", "HID")
+ICON = ROOT / "materials" / "Keyboard-Icon.ico"
 
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("MAC Keyboard Tester — A1243 FR")
+        self.setWindowTitle("Apple Keyboard Test - A1243 FR")
+        self.setWindowIcon(QIcon(str(ICON)))
         self._backend = None
 
         central = QWidget()
@@ -42,11 +39,6 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(central)
 
         bar = QHBoxLayout()
-        bar.addWidget(QLabel("Capture mode:"))
-        self._mode = QComboBox()
-        self._mode.addItems(list(MODES))
-        self._mode.currentTextChanged.connect(self._switch_mode)
-        bar.addWidget(self._mode)
         self._status = QLabel("")
         self._status.setWordWrap(True)
         bar.addWidget(self._status, stretch=1)
@@ -63,7 +55,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(hint)
 
         self.resize(1280, 520)
-        self._switch_mode(self._mode.currentText())
+        self._start_capture()
 
     def _on_key(self, slot: str | None, is_down: bool, ref: KeyRef) -> None:
         self._keyboard.set_key_down(slot, is_down)
@@ -77,25 +69,16 @@ class MainWindow(QMainWindow):
             self._backend = None
         self._keyboard.clear_pressed()
 
-    def _switch_mode(self, mode: str) -> None:
+    def _start_capture(self) -> None:
         self._stop_backend()
-        print(f"\n=== Capture mode → {mode} ===", flush=True)
+        print("\n=== Capture mode → CGEventTap ===", flush=True)
 
-        if mode == "Qt":
-            backend = QtCapture(self._on_key, self._keyboard)
-        elif mode == "CGEventTap":
-            backend = TapCapture(self._on_key)
-        elif mode == "HID":
-            backend = HidCapture(self._on_key)
-        else:
-            self._status.setText(f"Unknown mode: {mode}")
-            return
-
+        backend = TapCapture(self._on_key)
         ok, msg = backend.start()
         self._backend = backend if ok else None
         self._status.setText(("OK: " if ok else "FAIL: ") + msg)
-        print(f"[{mode}] start: {msg}", flush=True)
-        if not ok and mode != "Qt":
+        print(f"[CGEventTap] start: {msg}", flush=True)
+        if not ok:
             QMessageBox.warning(
                 self,
                 "Capture unavailable",
@@ -103,8 +86,6 @@ class MainWindow(QMainWindow):
                 + "\n\nSystem Settings → Privacy & Security → Accessibility "
                 "(and Input Monitoring) — enable your terminal / Python / Cursor.",
             )
-        if ok and mode == "Qt":
-            self._keyboard.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self._stop_backend()
@@ -113,6 +94,7 @@ class MainWindow(QMainWindow):
 
 def main() -> int:
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon(str(ICON)))
     win = MainWindow()
     win.show()
     return app.exec()

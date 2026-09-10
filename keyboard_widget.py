@@ -20,7 +20,7 @@ GREEN = QColor(0, 220, 0)
 class KeyboardWidget(QWidget):
     def __init__(self, png_path: Path, svg_path: Path, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._png = QImage(str(png_path))
         if self._png.isNull():
             raise FileNotFoundError(png_path)

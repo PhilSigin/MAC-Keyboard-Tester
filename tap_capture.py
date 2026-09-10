@@ -7,7 +7,7 @@ from typing import Any
 
 from PySide6.QtCore import QObject, Signal
 
-from capture.base import CaptureBackend, KeyCallback
+from capture_base import CaptureBackend, KeyCallback
 from key_map_fr import MAC_VK, MEDIA_TO_SLOT, KeyRef
 
 # NX_SYSDEFINED
