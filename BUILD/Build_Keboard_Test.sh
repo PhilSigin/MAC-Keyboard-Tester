@@ -9,7 +9,7 @@ START_TIME=$(date +%s)
 echo "--- Cleaning Previous Build ---"
 
 rm -rf Build 2>/dev/null || echo "Warning: Could not remove Build directory (may be locked)"
-#rm -rf Printer.app 2>/dev/null || echo "Warning: Could not remove Executable.app (may be locked)"
+#rm -rf "Mac Keyboard Test.app" 2>/dev/null || echo "Warning: Could not remove Executable.app (may be locked)"
 
 # Clean Nuitka cache (important if there are dependencies problems)
 # Comment it after successful build
@@ -26,7 +26,7 @@ python -m nuitka \
     --macos-create-app-bundle \
     --macos-app-name="MacKeyboardTestApp" \
     --macos-signed-app-name="com.mackeyboardtest.app" \
-    --macos-app-version="0.0.1" \
+    --macos-app-version="0.1.2" \
     --macos-app-icon="../materials/MacKeyboardTest.icns" \
     --macos-app-mode=gui \
     --enable-plugin=pyside6 \
