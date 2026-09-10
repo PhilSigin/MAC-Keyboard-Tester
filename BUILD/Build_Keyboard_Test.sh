@@ -26,7 +26,7 @@ python -m nuitka \
     --macos-create-app-bundle \
     --macos-app-name="Mac Keyboard Test" \
     --macos-signed-app-name="com.mackeyboardtest.app" \
-    --macos-app-version="0.1.2" \
+    --macos-app-version="0.1.3" \
     --macos-app-icon="../materials/MacKeyboardTest.icns" \
     --macos-app-mode=gui \
     --enable-plugin=pyside6 \
