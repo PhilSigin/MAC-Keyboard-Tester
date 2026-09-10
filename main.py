@@ -27,7 +27,7 @@ from tap_capture import TapCapture
 ROOT = Path(__file__).resolve().parent
 PNG = ROOT / "materials" / "Keyboard-8-bit.png"
 SVG = ROOT / "materials" / "Keyboard-8-bit.svg"
-ICON = ROOT / "materials" / "Keyboard-Icon.ico"
+ICON = ROOT / "materials" / "MacKeyboardTest.icns"
 
 MODE_FREEWAY = "Freeway"
 MODE_COVERAGE = "Coverage"
@@ -84,6 +84,7 @@ class MainWindow(QMainWindow):
 
         self._keyboard = KeyboardWidget(PNG, SVG)
         self._keyboard.reset_clicked.connect(self._reset_marks)
+        self._keyboard.mark_erased.connect(self._on_mark_erased)
         layout.addWidget(self._keyboard, stretch=1)
 
         self._typed = QPlainTextEdit()
@@ -125,6 +126,9 @@ class MainWindow(QMainWindow):
             for slot in self._down_slots:
                 self._keyboard.set_key_down(slot, True)
         print("[main] reset pressed-key marks", flush=True)
+
+    def _on_mark_erased(self, slot: str) -> None:
+        self._chord_involved.discard(slot)
 
     def _on_key(self, slot: str | None, is_down: bool, ref: KeyRef) -> None:
         if not slot:

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QImage, QPainter, QPaintEvent, QResizeEvent
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPaintEvent, QResizeEvent
 from PySide6.QtWidgets import QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from key_map_fr import NAME_TO_INDEX, SLOT_NAMES
@@ -27,10 +27,12 @@ ORANGE = QColor(0xFF, 0x8C, 0x00)
 
 class KeyboardWidget(QWidget):
     reset_clicked = Signal()
+    mark_erased = Signal(str)  # slot name cleared by click/drag
 
     def __init__(self, png_path: Path, svg_path: Path, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setMouseTracking(True)
         self._png = QImage(str(png_path))
         if self._png.isNull():
             raise FileNotFoundError(png_path)
@@ -51,6 +53,10 @@ class KeyboardWidget(QWidget):
         self._solo_marked: set[int] = set()
         self._chord_marked: set[int] = set()
         self._chord_active: set[int] = set()
+
+        self._erase_enabled = False
+        self._erasing = False
+        self._last_erased_idx: int | None = None
 
         # Cached layout rects (widget coords), updated on resize/paint.
         self._lay_target = QRectF()
@@ -148,8 +154,114 @@ class KeyboardWidget(QWidget):
         self._reset_btn.setCursor(
             Qt.CursorShape.PointingHandCursor if show_reset else Qt.CursorShape.ArrowCursor
         )
+        self._erase_enabled = show_reset
+        self._erasing = False
+        self._last_erased_idx = None
+        self.unsetCursor()
         self._recompute_layout()
         self._apply_overlay_geometry()
+
+    def clear_mark_at(self, idx: int) -> bool:
+        """Clear sticky marks for one key index. Returns True if anything changed."""
+        if idx < 0 or idx >= len(self._geoms):
+            return False
+        changed = False
+        if idx in self._visited:
+            self._visited.discard(idx)
+            changed = True
+        if idx in self._solo_marked:
+            self._solo_marked.discard(idx)
+            changed = True
+        if idx in self._chord_marked:
+            self._chord_marked.discard(idx)
+            changed = True
+        if changed:
+            if 0 <= idx < len(SLOT_NAMES):
+                self.mark_erased.emit(SLOT_NAMES[idx])
+            self.update()
+        return changed
+
+    def _widget_to_png(self, pos) -> QPointF | None:
+        png = self._lay_png
+        scale = self._lay_scale
+        if scale <= 0 or png.width() <= 0 or png.height() <= 0:
+            return None
+        x = (float(pos.x()) - png.x()) / scale
+        y = (float(pos.y()) - png.y()) / scale
+        if x < 0 or y < 0 or x > self._png_w or y > self._png_h:
+            return None
+        return QPointF(x, y)
+
+    def _hit_key_index(self, pos) -> int | None:
+        pt = self._widget_to_png(pos)
+        if pt is None:
+            return None
+        hits: list[tuple[float, int]] = []
+        for i, geom in enumerate(self._geoms):
+            if not geom.bbox.contains(pt):
+                continue
+            if geom.path.contains(pt):
+                hits.append((geom.bbox.width() * geom.bbox.height(), i))
+        if not hits:
+            return None
+        hits.sort(key=lambda item: item[0])
+        return hits[0][1]
+
+    def _erase_at(self, pos) -> None:
+        if not self._erase_enabled:
+            return
+        idx = self._hit_key_index(pos)
+        if idx is None or idx == self._last_erased_idx:
+            return
+        self._last_erased_idx = idx
+        self.clear_mark_at(idx)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if (
+            self._erase_enabled
+            and event.button() == Qt.MouseButton.LeftButton
+            and self._lay_png.contains(event.position())
+        ):
+            self._erasing = True
+            self._last_erased_idx = None
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._erase_at(event.position())
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if self._erasing and event.buttons() & Qt.MouseButton.LeftButton:
+            self._erase_at(event.position())
+            event.accept()
+            return
+        if self._erase_enabled and self._lay_png.contains(event.position()):
+            idx = self._hit_key_index(event.position())
+            marked = idx is not None and (
+                idx in self._visited
+                or idx in self._solo_marked
+                or idx in self._chord_marked
+            )
+            self.setCursor(
+                Qt.CursorShape.PointingHandCursor if marked else Qt.CursorShape.ArrowCursor
+            )
+        elif self._erase_enabled:
+            self.unsetCursor()
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton and self._erasing:
+            self._erasing = False
+            self._last_erased_idx = None
+            self.unsetCursor()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        if not self._erasing:
+            self.unsetCursor()
+        super().leaveEvent(event)
 
     def _slot_index(self, slot: str | None) -> int | None:
         if not slot or slot not in NAME_TO_INDEX:
