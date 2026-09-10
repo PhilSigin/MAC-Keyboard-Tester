@@ -24,12 +24,13 @@ export DYLD_FALLBACK_LIBRARY_PATH=""
 python -m nuitka \
     --standalone \
     --macos-create-app-bundle \
-    --macos-app-name="MacKeyboardTestApp" \
+    --macos-app-name="Mac Keyboard Test" \
     --macos-signed-app-name="com.mackeyboardtest.app" \
     --macos-app-version="0.1.2" \
     --macos-app-icon="../materials/MacKeyboardTest.icns" \
     --macos-app-mode=gui \
     --enable-plugin=pyside6 \
+    --include-package=code \
     --include-data-dir=../materials=materials \
     --output-dir=Build \
     ../main.py \
