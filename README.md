@@ -4,7 +4,7 @@ A macOS tool for testing an Apple A1243 French (AZERTY) keyboard.
 
 Press keys and see them light up on an on-screen layout. Capture uses CGEventTap so you get the full range of key events (letters, modifiers, Fn, media, and brightness).
 
-![App screenshot](imgs/fullscreen.png)
+![App screenshot](imgs/partscreen.png)
 
 ## Test modes
 
