@@ -51,12 +51,10 @@ This removes the quarantine flag from **Mac Keyboard Test.app** only. It does **
 
 ## Allow keyboard access (required)
 
-After the app opens, macOS may ask for permissions. **Mac Keyboard Test** needs them to detect all keys, including **Fn**, media, and brightness keys.
+After the app opens, macOS may ask for **Input Monitoring** (Allow Keystrokes). **Mac Keyboard Test** needs this to detect all keys, including **Fn**, media, and brightness keys.
 
-1. Open **System Settings → Privacy & Security**.
-2. Enable access for **Mac Keyboard Test** under:
-   - **Accessibility**
-   - **Input Monitoring** (keystrokes), if shown
+1. Open **System Settings → Privacy & Security → Input Monitoring**.
+2. Enable access for **Mac Keyboard Test** (or Terminal / Python if you launch from there).
 3. Quit and reopen the app if keys still do not register.
 
-Without these permissions, many keys will not be detected.
+Without Input Monitoring, many keys will not be detected.

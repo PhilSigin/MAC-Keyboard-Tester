@@ -18,11 +18,9 @@ A read-only typed preview at the bottom shows characters as macOS would type the
 
 ## Permissions (required)
 
-**Input Monitoring / keystrokes must be enabled** for **Mac Keyboard Test** to work, otherwise Fn and many other keys cannot be observed. Grant access in **System Settings → Privacy & Security**, and allow the app (or your terminal / Python) when prompted:
+**Input Monitoring / keystrokes must be enabled** for **Mac Keyboard Test** to work, otherwise Fn and many other keys cannot be observed. Grant access in **System Settings → Privacy & Security → Input Monitoring**, and allow the app (or your terminal / Python) when prompted:
 
 ![Allow keystrokes](imgs/allow-keystrokes.png)
-
-Also grant **Accessibility** if macOS asks for it.
 
 ```bash
 python main.py

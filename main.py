@@ -63,7 +63,7 @@ MODE_INFO: dict[str, tuple[str, str, bool]] = {
 TYPED_MAX_LEN = 500
 
 HELP_TEXT = (
-    "App needs Accessibility access granted to check all the keys including Fn.\n"
+    "App needs Input Monitoring (Allow Keystrokes) to check all the keys including Fn.\n"
     "You can click (or click and drag) with the mouse on keys to clear their statuses."
 )
 
@@ -339,8 +339,7 @@ def wait_for_keyboard_permission(app: QApplication) -> bool:
     )
     text_col.addWidget(
         _make_text_label(
-            "• Input Monitoring (Allow Keystrokes)\n"
-            "• Accessibility (if shown)",
+            "• Input Monitoring (Allow Keystrokes)",
             bold=False,
         )
     )

@@ -116,7 +116,7 @@ class TapCapture(CaptureBackend):
             ensure_capture_permissions(prompt=True)
             return (
                 False,
-                "CGEventTap could not start. Grant Accessibility and Input Monitoring "
+                "CGEventTap could not start. Grant Input Monitoring "
                 "(Allow Keystrokes) for Mac Keyboard Test, then reopen the app.",
             )
 
@@ -126,7 +126,7 @@ class TapCapture(CaptureBackend):
         self._tap = tap
         self._source = source
         self._active = True
-        return True, "CGEventTap listening (keys + Fn + media). Needs Accessibility."
+        return True, "CGEventTap listening (keys + Fn + media). Needs Input Monitoring."
 
     def stop(self) -> None:
         if self._tap is not None:
