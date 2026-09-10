@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from typing import Any
 
 from PySide6.QtCore import QObject, Signal
 
 from capture_base import CaptureBackend, KeyCallback
 from key_map_fr import MAC_VK, MEDIA_TO_SLOT, KeyRef
+
+TextCallback = Callable[[str], None]
 
 # NX_SYSDEFINED
 _NX_SYSDEFINED = 14
@@ -22,15 +25,22 @@ _SECONDARY_FN = 0x00800000
 
 class _TapBridge(QObject):
     key_event = Signal(object, bool)  # KeyRef, is_down
+    text_event = Signal(str)
 
 
 class TapCapture(CaptureBackend):
     name = "CGEventTap"
 
-    def __init__(self, on_key: KeyCallback) -> None:
+    def __init__(
+        self,
+        on_key: KeyCallback,
+        on_text: TextCallback | None = None,
+    ) -> None:
         super().__init__(on_key)
+        self.on_text = on_text
         self._bridge = _TapBridge()
         self._bridge.key_event.connect(self._on_bridge)
+        self._bridge.text_event.connect(self._on_text_bridge)
         self._tap = None
         self._source = None
         self._fn_down = False
@@ -38,6 +48,10 @@ class TapCapture(CaptureBackend):
 
     def _on_bridge(self, ref: KeyRef, is_down: bool) -> None:
         self.emit(ref, is_down)
+
+    def _on_text_bridge(self, text: str) -> None:
+        if self.on_text and text:
+            self.on_text(text)
 
     def start(self) -> tuple[bool, str]:
         try:
@@ -118,6 +132,20 @@ class TapCapture(CaptureBackend):
         self._source = None
         self._active = False
 
+    def _emit_typed_text(self, event: Any) -> None:
+        if not self.on_text:
+            return
+        ns_event = self._NSEvent.eventWithCGEvent_(event)
+        if ns_event is None:
+            return
+        chars = ns_event.characters()
+        if not chars:
+            return
+        text = str(chars)
+        if not text:
+            return
+        self._bridge.text_event.emit(text)
+
     def _handle(self, event_type: int, event: Any) -> None:
         from Quartz import (
             kCGEventFlagsChanged,
@@ -133,6 +161,8 @@ class TapCapture(CaptureBackend):
             name = MAC_VK.get(keycode, f"vk_{keycode:02X}")
             ref = KeyRef("mac_vk", keycode, name)
             self._bridge.key_event.emit(ref, is_down)
+            if is_down:
+                self._emit_typed_text(event)
             return
 
         if event_type == kCGEventFlagsChanged:
