@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont, QIcon, QKeySequence, QShortcut, QTextCursor
+from PySide6.QtGui import QFont, QFontMetrics, QIcon, QKeySequence, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -87,6 +87,9 @@ QPushButton:checked {
 }
 """
 
+MODE_BTN_PAD_X = 14
+MODE_BTN_BORDER = 1
+
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
@@ -120,6 +123,13 @@ class MainWindow(QMainWindow):
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet(MODE_BTN_STYLE)
+            # Size for bold label so :checked font-weight: 600 does not clip glyphs.
+            bold = QFont(btn.font())
+            bold.setPointSize(13)
+            bold.setWeight(QFont.Weight.DemiBold)
+            text_w = QFontMetrics(bold).horizontalAdvance(mode)
+            # +4 for bold glyph overhang / antialiasing beyond advance width.
+            btn.setMinimumWidth(text_w + 2 * MODE_BTN_PAD_X + 2 * MODE_BTN_BORDER + 4)
             btn.clicked.connect(lambda _checked=False, m=mode: self._on_mode_changed(m))
             self._mode_group.addButton(btn)
             self._mode_buttons[mode] = btn
