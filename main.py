@@ -6,11 +6,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon, QTextCursor
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QFont, QIcon, QKeySequence, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
+    QDialog,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -21,9 +22,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from key_map_fr import KeyRef
-from keyboard_widget import KeyboardWidget
-from tap_capture import TapCapture
+from code.key_map_fr import KeyRef
+from code.keyboard_widget import KeyboardWidget
+from code.permissions import (
+    ensure_capture_permissions,
+    input_monitoring_granted,
+    open_privacy_and_security_settings,
+)
+from code.tap_capture import TapCapture
 
 ROOT = Path(__file__).resolve().parent
 PNG = ROOT / "materials" / "Keyboard-8-bit.png"
@@ -99,7 +105,8 @@ class MainWindow(QMainWindow):
         bar = QHBoxLayout()
         self._help = QLabel(HELP_TEXT)
         self._help.setWordWrap(True)
-        self._help.setStyleSheet("color: #333; font-size: 12px;")
+        # palette(window-text) follows light/dark mode (hardcoded #333 vanishes in dark).
+        self._help.setStyleSheet("color: palette(window-text); font-size: 12px;")
         bar.addWidget(self._help, stretch=1)
 
         mode_row = QHBoxLayout()
@@ -140,7 +147,7 @@ class MainWindow(QMainWindow):
 
         self.resize(1280, 560)
         self._apply_mode_ui(MODE_FREEWAY)
-        self._start_capture()
+        self._capture_ok = self._start_capture()
 
     def _apply_mode_ui(self, mode: str) -> None:
         title, desc, show_reset = MODE_INFO[mode]
@@ -248,32 +255,170 @@ class MainWindow(QMainWindow):
         self._chord_involved.clear()
         self._keyboard.clear_pressed()
 
-    def _start_capture(self) -> None:
+    def _start_capture(self) -> bool:
         self._stop_backend()
         print("\n=== Capture mode → CGEventTap ===", flush=True)
 
         backend = TapCapture(self._on_key, on_text=self._on_text)
-        ok, msg = backend.start()
+        # Permissions already handled (and waited on) before the window opens.
+        ok, msg = backend.start(prompt_permissions=False)
         self._backend = backend if ok else None
         print(f"[CGEventTap] start: {msg}", flush=True)
         if not ok:
-            QMessageBox.warning(
-                self,
-                "Capture unavailable",
-                msg
-                + "\n\nSystem Settings → Privacy & Security → Accessibility "
-                "(and Input Monitoring) — enable your terminal / Python / Cursor.",
-            )
+            fail = QMessageBox(None)
+            fail.setWindowIcon(QIcon(str(ICON)))
+            fail.setIconPixmap(QIcon(str(ICON)).pixmap(64, 64))
+            fail.setWindowTitle("Capture unavailable")
+            fail.setText("Could not start keyboard capture.\n\n" + msg)
+            fail.setStandardButtons(QMessageBox.StandardButton.Ok)
+            fail.exec()
+            return False
+        return True
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self._stop_backend()
         super().closeEvent(event)
 
 
+def _make_text_label(text: str, *, bold: bool = False) -> QLabel:
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+    font = QFont(label.font())
+    # Keep the system dialog size; only toggle weight (no HTML / rich text).
+    font.setBold(bold)
+    label.setFont(font)
+    return label
+
+
+def wait_for_keyboard_permission(app: QApplication) -> bool:
+    """Prompt for permissions; poll every 100ms until granted or user quits.
+
+    Uses a non-modal dialog + a temporary app.exec() so macOS Quit / ⌘Q stay
+    enabled (ApplicationModal QDialog.exec() greys out Quit in the menu).
+    """
+    ensure_capture_permissions(prompt=True)
+    if input_monitoring_granted():
+        return True
+
+    app_icon = QIcon(str(ICON))
+    state = {"ok": False, "done": False}
+
+    # Keep the process alive while this dialog is the only window.
+    prev_quit_on_last = app.quitOnLastWindowClosed()
+    app.setQuitOnLastWindowClosed(False)
+
+    dlg = QDialog(None)
+    dlg.setWindowTitle("No keyboard permission")
+    dlg.setWindowIcon(app_icon)
+    dlg.setWindowModality(Qt.WindowModality.NonModal)
+    dlg.setMinimumWidth(420)
+
+    root = QVBoxLayout(dlg)
+    root.setContentsMargins(16, 16, 16, 14)
+    root.setSpacing(12)
+
+    row = QHBoxLayout()
+    row.setSpacing(14)
+    icon_label = QLabel()
+    icon_label.setPixmap(app_icon.pixmap(64, 64))
+    icon_label.setAlignment(Qt.AlignmentFlag.AlignTop)
+    row.addWidget(icon_label)
+
+    text_col = QVBoxLayout()
+    text_col.setSpacing(8)
+    text_col.addWidget(
+        _make_text_label(
+            "Mac Keyboard Test has no permission\nto read the keys.",
+            bold=True,
+        )
+    )
+    text_col.addWidget(_make_text_label("Please allow access in", bold=False))
+    text_col.addWidget(
+        _make_text_label("System Settings → Privacy & Security:", bold=True)
+    )
+    text_col.addWidget(
+        _make_text_label(
+            "• Input Monitoring (Allow Keystrokes)\n"
+            "• Accessibility (if shown)",
+            bold=False,
+        )
+    )
+    text_col.addWidget(
+        _make_text_label(
+            "Enable Mac Keyboard Test\n"
+            "(or Terminal / Python if you launch from there).\n"
+            "and relaunch the app.",
+            bold=False,
+        )
+    )
+    row.addLayout(text_col, stretch=1)
+    root.addLayout(row)
+
+    buttons = QHBoxLayout()
+    buttons.addStretch(1)
+    open_btn = QPushButton("Open Security && Privacy for me")
+    quit_btn = QPushButton("OK, Quit now")
+    quit_btn.setDefault(True)
+    buttons.addWidget(open_btn)
+    buttons.addWidget(quit_btn)
+    root.addLayout(buttons)
+
+    def _finish(ok: bool) -> None:
+        if state["done"]:
+            return
+        state["done"] = True
+        state["ok"] = ok
+        timer.stop()
+        dlg.close()
+        app.quit()
+
+    def _on_open() -> None:
+        open_privacy_and_security_settings()
+        ensure_capture_permissions(prompt=True)
+
+    def _on_quit() -> None:
+        _finish(False)
+
+    open_btn.clicked.connect(_on_open)
+    quit_btn.clicked.connect(_on_quit)
+    # Menu Quit / ⌘Q (StandardKey.Quit) while this dialog is up.
+    QShortcut(QKeySequence.StandardKey.Quit, dlg, _on_quit)
+    dlg.rejected.connect(_on_quit)
+
+    timer = QTimer(dlg)
+    timer.setInterval(100)
+
+    def _poll() -> None:
+        if input_monitoring_granted():
+            print("[permissions] Input Monitoring granted — continuing.", flush=True)
+            _finish(True)
+
+    timer.timeout.connect(_poll)
+    timer.start()
+    dlg.show()
+    dlg.raise_()
+    dlg.activateWindow()
+    app.exec()
+    timer.stop()
+    app.setQuitOnLastWindowClosed(prev_quit_on_last)
+
+    if state["ok"] and input_monitoring_granted():
+        ensure_capture_permissions(prompt=True)
+        return True
+    return False
+
+
 def main() -> int:
     app = QApplication(sys.argv)
+    app.setApplicationName("Mac Keyboard Test")
+    app.setOrganizationName("MacKeyboardTest")
     app.setWindowIcon(QIcon(str(ICON)))
+    if not wait_for_keyboard_permission(app):
+        return 1
     win = MainWindow()
+    if not win._capture_ok:
+        return 1
     win.show()
     return app.exec()
 
