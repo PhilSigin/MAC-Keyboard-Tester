@@ -10,12 +10,13 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
-    QComboBox,
+    QButtonGroup,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -55,6 +56,31 @@ MODE_INFO: dict[str, tuple[str, str, bool]] = {
 
 TYPED_MAX_LEN = 500
 
+HELP_TEXT = (
+    "App needs Accessibility access granted to check all the keys including Fn.\n"
+    "You can click (or click and drag) with the mouse on keys to clear their statuses."
+)
+
+MODE_BTN_STYLE = """
+QPushButton {
+    background-color: #ececec;
+    color: #222;
+    border: 1px solid #888;
+    border-radius: 5px;
+    padding: 6px 14px;
+    font-size: 13px;
+}
+QPushButton:hover {
+    background-color: #f5f5f5;
+}
+QPushButton:checked {
+    background-color: #3a7bd5;
+    color: white;
+    border: 1px solid #2a5fa8;
+    font-weight: 600;
+}
+"""
+
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
@@ -71,15 +97,28 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(central)
 
         bar = QHBoxLayout()
-        self._status = QLabel("")
-        self._status.setWordWrap(True)
-        bar.addWidget(self._status, stretch=1)
-        bar.addWidget(QLabel("Mode:"))
-        self._mode_combo = QComboBox()
-        self._mode_combo.addItems(list(MODES))
-        self._mode_combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._mode_combo.currentTextChanged.connect(self._on_mode_changed)
-        bar.addWidget(self._mode_combo)
+        self._help = QLabel(HELP_TEXT)
+        self._help.setWordWrap(True)
+        self._help.setStyleSheet("color: #333; font-size: 12px;")
+        bar.addWidget(self._help, stretch=1)
+
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(6)
+        self._mode_group = QButtonGroup(self)
+        self._mode_group.setExclusive(True)
+        self._mode_buttons: dict[str, QPushButton] = {}
+        for mode in MODES:
+            btn = QPushButton(mode)
+            btn.setCheckable(True)
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(MODE_BTN_STYLE)
+            btn.clicked.connect(lambda _checked=False, m=mode: self._on_mode_changed(m))
+            self._mode_group.addButton(btn)
+            self._mode_buttons[mode] = btn
+            mode_row.addWidget(btn)
+        self._mode_buttons[MODE_FREEWAY].setChecked(True)
+        bar.addLayout(mode_row)
         layout.addLayout(bar)
 
         self._keyboard = KeyboardWidget(PNG, SVG)
@@ -106,9 +145,16 @@ class MainWindow(QMainWindow):
     def _apply_mode_ui(self, mode: str) -> None:
         title, desc, show_reset = MODE_INFO[mode]
         self._keyboard.set_mode_info(title, desc, show_reset)
+        btn = self._mode_buttons.get(mode)
+        if btn is not None and not btn.isChecked():
+            btn.setChecked(True)
 
     def _on_mode_changed(self, mode: str) -> None:
         if mode not in MODE_INFO:
+            return
+        if mode == self._mode:
+            # Keep the active button checked if the user clicks it again.
+            self._mode_buttons[mode].setChecked(True)
             return
         self._mode = mode
         self._down_slots.clear()
@@ -209,7 +255,6 @@ class MainWindow(QMainWindow):
         backend = TapCapture(self._on_key, on_text=self._on_text)
         ok, msg = backend.start()
         self._backend = backend if ok else None
-        self._status.setText(("OK: " if ok else "FAIL: ") + msg)
         print(f"[CGEventTap] start: {msg}", flush=True)
         if not ok:
             QMessageBox.warning(
