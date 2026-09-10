@@ -6,14 +6,17 @@ from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPaintEvent, QResizeEvent
-from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from key_map_fr import NAME_TO_INDEX, SLOT_NAMES
 from svg_keys import KeyGeom, load_key_geometries
 
 BG_GRAY = QColor(128, 128, 128)  # 50% gray
-PAD_X = 0.20
-PAD_Y = 0.30
+PAD_X = 0.10  # left/right grey (half of original 0.20)
+PAD_Y_TOP = 0.15  # above keyboard (half of original 0.30)
+PAD_Y_BOTTOM = 0.30  # below keyboard (same as original vertical pad)
+# Fixed height for title + subtitle + Reset; placed closer to keyboard (1/3 above, 2/3 below).
+CONTENT_H = 100
 
 GREEN = QColor(0, 220, 0)
 PALE_BLUE = QColor(0xA8, 0xD4, 0xF0)
@@ -33,10 +36,7 @@ class KeyboardWidget(QWidget):
             raise FileNotFoundError(png_path)
         self._png_w = self._png.width()
         self._png_h = self._png.height()
-        self._canvas_w = int(self._png_w * (1 + 2 * PAD_X))
-        self._canvas_h = int(self._png_h * (1 + 2 * PAD_Y))
-        self._offset_x = int(self._png_w * PAD_X)
-        self._offset_y = int(self._png_h * PAD_Y)
+        self._canvas_w = self._png_w * (1 + 2 * PAD_X)
 
         geoms = load_key_geometries(svg_path, self._png_w, self._png_h)
         if len(geoms) != len(SLOT_NAMES):
@@ -52,47 +52,104 @@ class KeyboardWidget(QWidget):
         self._chord_marked: set[int] = set()
         self._chord_active: set[int] = set()
 
-        self.setMinimumSize(640, 240)
+        # Cached layout rects (widget coords), updated on resize/paint.
+        self._lay_target = QRectF()
+        self._lay_png = QRectF()
+        self._lay_bottom = QRectF()
+        self._lay_scale = 1.0
+
+        self.setMinimumSize(640, 320)
         self._build_overlay()
 
     def _build_overlay(self) -> None:
+        # Full bottom-pad host: spacer 1/3 | content ~100px | spacer 2/3
         self._overlay = QWidget(self)
         self._overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self._overlay.setStyleSheet("background: transparent;")
-        lay = QVBoxLayout(self._overlay)
-        lay.setContentsMargins(8, 4, 8, 12)
+        host = QVBoxLayout(self._overlay)
+        host.setContentsMargins(0, 0, 0, 0)
+        host.setSpacing(0)
+        host.addStretch(1)
+
+        self._content = QWidget(self._overlay)
+        self._content.setFixedHeight(CONTENT_H)
+        self._content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._content.setStyleSheet("background: transparent;")
+        lay = QVBoxLayout(self._content)
+        lay.setContentsMargins(12, 0, 12, 0)
         lay.setSpacing(4)
-        lay.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom)
+        lay.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
 
         self._mode_title = QLabel("")
         self._mode_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._mode_title.setStyleSheet(
-            "color: #1a1a1a; font-size: 15px; font-weight: 600; background: transparent;"
+            "color: #1a1a1a; font-size: 18px; font-weight: 600; background: transparent;"
         )
         lay.addWidget(self._mode_title)
 
         self._mode_desc = QLabel("")
         self._mode_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._mode_desc.setWordWrap(True)
+        self._mode_desc.setWordWrap(False)
         self._mode_desc.setStyleSheet(
-            "color: #333; font-size: 12px; background: transparent;"
+            "color: #333; font-size: 14px; background: transparent;"
         )
         lay.addWidget(self._mode_desc)
 
-        self._reset_btn = QPushButton("Reset pressed keys")
+        lay.addSpacing(10)
+
+        self._reset_btn = QPushButton("Reset")
         self._reset_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._reset_btn.setMinimumWidth(110)
+        self._reset_btn.setFixedHeight(32)
+        self._reset_style_visible = """
+            QPushButton {
+                background-color: #e6e6e6;
+                color: #1a1a1a;
+                border: 1px solid #666;
+                border-radius: 5px;
+                padding: 6px 18px;
+                font-size: 14px;
+                font-weight: 600;
+            }
+            QPushButton:hover { background-color: #f2f2f2; }
+            QPushButton:pressed { background-color: #cfcfcf; }
+        """
+        self._reset_style_invisible = """
+            QPushButton {
+                background-color: transparent;
+                color: transparent;
+                border: 1px solid transparent;
+                border-radius: 5px;
+                padding: 6px 18px;
+                font-size: 14px;
+                font-weight: 600;
+            }
+        """
+        self._reset_btn.setStyleSheet(self._reset_style_invisible)
+        self._reset_btn.setEnabled(False)
         self._reset_btn.clicked.connect(self.reset_clicked.emit)
-        self._reset_btn.setVisible(False)
+        self._reset_btn.setVisible(True)
         lay.addWidget(self._reset_btn, alignment=Qt.AlignmentFlag.AlignHCenter)
 
+        host.addWidget(self._content, 0, Qt.AlignmentFlag.AlignHCenter)
+        host.addStretch(2)
         self._overlay.raise_()
 
     def set_mode_info(self, title: str, description: str, show_reset: bool) -> None:
         self._mode_title.setText(title)
         self._mode_desc.setText(description)
-        self._reset_btn.setVisible(show_reset)
-        self._position_overlay()
+        # Keep Reset in the layout always (invisible in Freeway) so spacing stays stable.
+        self._reset_btn.setVisible(True)
+        self._reset_btn.setEnabled(show_reset)
+        self._reset_btn.setStyleSheet(
+            self._reset_style_visible if show_reset else self._reset_style_invisible
+        )
+        self._reset_btn.setCursor(
+            Qt.CursorShape.PointingHandCursor if show_reset else Qt.CursorShape.ArrowCursor
+        )
+        self._recompute_layout()
+        self._apply_overlay_geometry()
 
     def _slot_index(self, slot: str | None) -> int | None:
         if not slot or slot not in NAME_TO_INDEX:
@@ -161,23 +218,41 @@ class KeyboardWidget(QWidget):
         self._held.clear()
         self.clear_marks()
 
-    def _target_rect(self) -> QRectF:
+    def _recompute_layout(self) -> None:
+        """Fit keyboard with obligatory pads; bottom pad never smaller than CONTENT_H."""
         side = self.contentsRect()
-        scale = min(side.width() / self._canvas_w, side.height() / self._canvas_h)
-        w = self._canvas_w * scale
-        h = self._canvas_h * scale
-        x = side.x() + (side.width() - w) / 2
-        y = side.y() + (side.height() - h) / 2
-        return QRectF(x, y, w, h)
+        sw = max(1.0, float(side.width()))
+        sh = max(1.0, float(side.height()))
 
-    def _position_overlay(self) -> None:
-        target = self._target_rect()
-        hint = self._overlay.sizeHint()
-        w = min(int(target.width() * 0.7), max(hint.width(), 280))
-        h = hint.height()
-        x = int(target.x() + (target.width() - w) / 2)
-        y = int(target.y() + target.height() - h - 8)
-        self._overlay.setGeometry(x, y, w, h)
+        s_w = sw / self._canvas_w
+        # Height if bottom pad stays proportional to the image.
+        h_prop_unit = self._png_h * (1.0 + PAD_Y_TOP + PAD_Y_BOTTOM)
+        s_h_prop = sh / h_prop_unit
+        # Height if bottom pad is floored at CONTENT_H (prevents clipping when small).
+        top_and_png_unit = self._png_h * (1.0 + PAD_Y_TOP)
+        s_h_floor = max(0.01, (sh - CONTENT_H) / top_and_png_unit)
+        scale = min(s_w, s_h_prop, s_h_floor)
+
+        png_w = self._png_w * scale
+        png_h = self._png_h * scale
+        pad_x = self._png_w * PAD_X * scale
+        pad_top = self._png_h * PAD_Y_TOP * scale
+        pad_bottom = max(self._png_h * PAD_Y_BOTTOM * scale, float(CONTENT_H))
+
+        total_w = png_w + 2 * pad_x
+        total_h = pad_top + png_h + pad_bottom
+        x0 = float(side.x()) + (sw - total_w) / 2.0
+        y0 = float(side.y()) + (sh - total_h) / 2.0
+
+        self._lay_scale = scale
+        self._lay_target = QRectF(x0, y0, total_w, total_h)
+        self._lay_png = QRectF(x0 + pad_x, y0 + pad_top, png_w, png_h)
+        self._lay_bottom = QRectF(x0, self._lay_png.bottom(), total_w, pad_bottom)
+
+    def _apply_overlay_geometry(self) -> None:
+        r = self._lay_bottom
+        self._overlay.setGeometry(int(r.x()), int(r.y()), max(1, int(r.width())), max(1, int(r.height())))
+        self._content.setFixedWidth(max(1, int(r.width())))
         self._overlay.raise_()
 
     def _draw_slots(self, painter: QPainter, indices: set[int], color: QColor) -> None:
@@ -189,30 +264,30 @@ class KeyboardWidget(QWidget):
                 painter.drawPath(self._geoms[idx].path)
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
+        self._recompute_layout()
+        self._apply_overlay_geometry()
+
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         painter.fillRect(self.rect(), BG_GRAY)
 
-        target = self._target_rect()
-        scale = target.width() / self._canvas_w
+        target = self._lay_target
+        png_rect = self._lay_png
+        scale = self._lay_scale
 
         painter.fillRect(target, BG_GRAY)
-
-        png_rect = QRectF(
-            target.x() + self._offset_x * scale,
-            target.y() + self._offset_y * scale,
-            self._png_w * scale,
-            self._png_h * scale,
-        )
         painter.drawImage(png_rect, self._png)
 
+        # While held, suppress sticky marks so green/orange stay clean (no muddy multiply).
+        live = self._held | self._chord_active
+        held_green = self._held - self._chord_active
         layers = (
-            (self._visited, PALE_BLUE),
-            (self._solo_marked, MARK_GRAY),
-            (self._chord_marked, PALE_ORANGE),
+            (self._visited - live, PALE_BLUE),
+            (self._solo_marked - live, MARK_GRAY),
+            (self._chord_marked - live, PALE_ORANGE),
             (self._chord_active, ORANGE),
-            (self._held, GREEN),
+            (held_green, GREEN),
         )
         if any(indices for indices, _ in layers):
             painter.save()
@@ -226,9 +301,11 @@ class KeyboardWidget(QWidget):
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
-        self._position_overlay()
+        self._recompute_layout()
+        self._apply_overlay_geometry()
         self.update()
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
-        self._position_overlay()
+        self._recompute_layout()
+        self._apply_overlay_geometry()
